@@ -1,18 +1,17 @@
 const express = require("express");
 const cors = require("cors");
 require("dotenv").config();
+const { MongoClient, ObjectId, ServerApiVersion } = require("mongodb");
+
 const app = express();
 const port = process.env.PORT || 5000;
-const { MongoClient, ServerApiVersion } = require("mongodb");
 
-// MiddleWare
+// Middleware
 app.use(cors());
 app.use(express.json());
 
-
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.jtwnv2k.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
 
-// Create a MongoClient with a MongoClientOptions object to set the Stable API version
 const client = new MongoClient(uri, {
   serverApi: {
     version: ServerApiVersion.v1,
@@ -23,20 +22,35 @@ const client = new MongoClient(uri, {
 
 async function run() {
   try {
-    // Connect the client to the server	(optional starting in v4.7)
-    // await client.connect();
-    // Send a ping to confirm a successful connection
-    // await client.db("admin").command({ ping: 1 });
-
     const bookCollection = client.db("bookDB").collection("book");
+    const borrowedBookCollection = client
+      .db("bookDB")
+      .collection("borrowedBook");
 
-    app.get("/books", async (req, res) => {
+    const bookCategoryCollection = client
+      .db("bookDB")
+      .collection("book-categories");
+
+    app.get("/bookCategories", async (req, res) => {
+      const cursor = bookCategoryCollection.find();
+      const result = await cursor.toArray();
+      res.send(result);
+    });
+    app.get("/allBooks", async (req, res) => {
       const cursor = bookCollection.find();
       const result = await cursor.toArray();
       res.send(result);
     });
 
-    app.get("/books/:id", async (req, res) => {
+    app.get("/getCategoryBooks/:categoryName", async (req, res) => {
+      const categoryName = req.params.categoryName;
+      console.log(categoryName);
+      const cursor = bookCollection.find({ category: categoryName });
+      const result = await cursor.toArray();
+      res.send(result);
+    });
+
+    app.get("/bookDetails/:id", async (req, res) => {
       const id = req.params.id;
       const query = { _id: new ObjectId(id) };
       const result = await bookCollection.findOne(query);
@@ -45,47 +59,82 @@ async function run() {
 
     app.post("/books", async (req, res) => {
       const newList = req.body;
-      console.log(newList);
       const result = await bookCollection.insertOne(newList);
       res.send(result);
     });
 
-    app.put("/books/:id", async (req, res) => {
+    app.put("/updateBooks/:id", async (req, res) => {
       const id = req.params.id;
       const filter = { _id: new ObjectId(id) };
-      const options = { upsert: true };
-      const updateDoc = req.body;
-      const doc = {
+      const data = req.body;
+      const updateDoc = {
         $set: {
-          photo: updateDoc.photo,
-          author_name: updateDoc.author_name,
-          name: updateDoc.name,
-          category: updateDoc.category,
-          short_description: updateDoc.short_description,
-          quantity_of_books: updateDoc.quantity_of_books,
-          rating: updateDoc.rating,
+          ...data,
         },
       };
-      const result = await bookCollection.updateOne(filter, doc, options);
+      const result = await bookCollection.updateOne(filter, updateDoc);
+      return res.send(result);
+    });
+
+    app.get("/getBorrowBooks/:email", async (req, res) => {
+      const email = req.params.email;
+      const response = await borrowedBookCollection.find({ borrowedEmail: email }).toArray();
+      return res.send(response)
+    });
+
+    app.delete("/returnBooks/:id", async (req, res) => {
+      const id = req.params.id;
+      const previousBookId = req.query.previousBookId;
+      console.log(id, "Hello", previousBookId);
+      const mainBook = await bookCollection.findOne({_id : new ObjectId(previousBookId)})
+      const updateDoc = {
+        $set: {
+          quantity_of_books: parseInt(mainBook.quantity_of_books) + 1,
+        },
+      }
+      const result = await bookCollection.updateOne(
+        { _id: new ObjectId(previousBookId) },
+        updateDoc
+      );
+
+      const response = await borrowedBookCollection.deleteOne({
+        _id: new ObjectId(id)
+      });
+      return res.send(response)
+    });
+
+    app.put("/bookDetails/:id", async (req, res) => {
+      const bookData = req.body;
+      console.log(bookData);
+      const id = req.params.id;
+      const filter = { _id: new ObjectId(id) };
+      const findData = await bookCollection.findOne(filter);
+      const updateBookData = {
+        $set: {
+          ...bookData,
+        },
+      };
+      const response = await borrowedBookCollection.insertOne(bookData);
+      const updateDoc = {
+        $set: {
+          quantity_of_books: parseInt(findData.quantity_of_books) - 1,
+        },
+      };
+      const result = await bookCollection.updateOne(filter, updateDoc);
       res.send(result);
     });
-    console.log(
-      "Pinged your deployment. You successfully connected to MongoDB!"
-    );
+
+    console.log("Connected to MongoDB!");
   } finally {
-    // Ensures that the client will close when you finish/error
-    // await client.close();
+    // Do not close the client connection if you're using it persistently
   }
 }
 run().catch(console.dir);
+
 app.get("/", (req, res) => {
-  res.send("Server Is Runninggggggg");
+  res.send("Server is running!");
 });
 
-app.listen(port, (req, res) => {
-  console.log(`Server Is running on Port ${port}`);
+app.listen(port, () => {
+  console.log(`Server is running on port ${port}`);
 });
-
-
-
-// nodemon index.js 
