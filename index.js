@@ -7,17 +7,27 @@ const jwt = require("jsonwebtoken");
 
 const app = express();
 const port = process.env.PORT || 5000;
+console.log(process.env.ACCESS_TOKEN_SECRET);
 
 // Middleware setup
-app.use(cors({ origin: ["http://localhost:5173"], credentials: true }));
+app.use(
+  cors({
+    origin: [
+      "http://localhost:5173",
+      "https://library-6eb65.web.app",
+      "https://library-6eb65.firebaseapp.com",
+    ],
+    credentials: true,
+  })
+);
 app.use(express.json());
 app.use(cookieParser());
 
 // Cookie options for JWT
 const cookieOptions = {
   httpOnly: true,
-  secure: process.env.NODE_ENV === "production",
   sameSite: process.env.NODE_ENV === "production" ? "none" : "strict",
+  secure: process.env.NODE_ENV === "production" ? true : false,
 };
 
 // MongoDB connection
@@ -39,7 +49,7 @@ const client = new MongoClient(uri, {
 // Main function to run server and MongoDB connection
 async function run() {
   try {
-    await client.connect();
+    // await client.connect();
     const bookCollection = client.db("bookDB").collection("book");
     const borrowedBookCollection = client
       .db("bookDB")
@@ -52,25 +62,33 @@ async function run() {
       const user = req.body;
       console.log(user, "jwt User");
       const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, {
-        expiresIn: "365",
+        expiresIn: "365Day",
       });
-      console.log( token)
-      res.cookie('token', token, cookieOptions).send({ success: true });
+      console.log(token);
+      res
+        .cookie("token", token, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === "production",
+          maxAge: 3600000,
+        })
+        .send({ success: true, token: token });
     });
 
     // JWT verification middleware
     const verifyToken = (req, res, next) => {
       const token = req.cookies.token;
-      if (!token) {
-        return res.status(401).send({ message: "Unauthorized Access" });
-      }
+      console.log(process.env.ACCESS_TOKEN_SECRET, "this is secret token");
+      // if (!token) {
+      //   return res.status(401).send({ message: "Unauthorized Access" });
+      // }
       jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
         if (err) {
           return res.status(401).send({ message: "Unauthorized Access" });
         }
         req.user = decoded;
+        console.log(decoded);
       });
-      next();
+      // next();
     };
 
     // Routes
@@ -79,17 +97,10 @@ async function run() {
       res.send(result);
     });
 
-    app.get("/allBooks", verifyToken, async (req, res) => {
-      const { email } = req.query;
-      console.log(email, req.user.email);
-      if (req.user.email !== email) {
-        return res.status(403).send({ message: "Forbidden Access" });
-      }
-      const books = await borrowedBookCollection
-        .find({ borrowedEmail: email })
-        .toArray();
-      // const books = await bookCollection.find().toArray();
-      res.send(books);
+    app.get("/allBooks", async (req, res) => {
+      const Addedbooks = await bookCollection.find().toArray();
+      
+      res.send(Addedbooks);
     });
 
     app.get("/getCategoryBooks/:categoryName", async (req, res) => {
